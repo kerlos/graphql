@@ -397,7 +397,7 @@ func (c *Client) SubscriptionClient(ctx context.Context, header http.Header) (*S
 			continue
 
 		case gql_connection_ack:
-			break
+			goto DONE
 
 		default:
 			conn.Close()
@@ -405,10 +405,14 @@ func (c *Client) SubscriptionClient(ctx context.Context, header http.Header) (*S
 				errJ, _ := json.Marshal(*msg.Payload)
 				return nil, errors.New(string(errJ))
 			}
+
 			return nil, errors.New("server-did-not-acknowledge")
 		}
 	}
 
+	return nil, errors.New("timeout")
+
+DONE:
 	go subClient.subWork()
 	return subClient, nil
 }

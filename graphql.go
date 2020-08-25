@@ -35,8 +35,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/websocket"
-	"github.com/pkg/errors"
 	"io"
 	"log"
 	"mime/multipart"
@@ -44,6 +42,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/gorilla/websocket"
+	"github.com/pkg/errors"
 )
 
 // Client is a client for interacting with a GraphQL API.
@@ -60,7 +61,6 @@ type Client struct {
 	//  client.Log = func(s string) { log.Println(s) }
 	Log func(s string)
 }
-
 
 // NewClient makes a new Client capable of making GraphQL requests.
 func NewClient(endpoint string, opts ...ClientOption) *Client {
@@ -328,30 +328,28 @@ type File struct {
 	R     io.Reader
 }
 
-
 type SubscriptionClient struct {
-
-	subWebsocket * websocket.Conn
-	subBuffer chan subscriptionMessage
-	subWait sync.WaitGroup
-	subs sync.Map
-	subIdGen int
+	subWebsocket *websocket.Conn
+	subBuffer    chan subscriptionMessage
+	subWait      sync.WaitGroup
+	subs         sync.Map
+	subIdGen     int
 }
-
 
 type subscriptionMessageType string
 
 const (
-	gql_connection_init       subscriptionMessageType = "connection_init"
-	gql_start                                         = "start"
-	gql_stop                                          = "stop"
-	gql_connection_ack                                = "connection_ack"
-	gql_connection_terminate                          = "connection_terminate"
-	gql_connection_error                              = "connection_error"
-	gql_data                                          = "data"
-	gql_error                                         = "error"
-	gql_complete                                      = "GQL_COMPLETE"
-	gql_connection_keep_alive                         = "ka"
+	gql_connection_init subscriptionMessageType = "connection_init"
+	// gql_connection_keep_alive subscriptionMessageType = "ka"
+	gql_start                 = "start"
+	gql_stop                  = "stop"
+	gql_connection_ack        = "connection_ack"
+	gql_connection_terminate  = "connection_terminate"
+	gql_connection_error      = "connection_error"
+	gql_data                  = "data"
+	gql_error                 = "error"
+	gql_complete              = "GQL_COMPLETE"
+	gql_connection_keep_alive = "ka"
 )
 
 type subscriptionMessage struct {
@@ -360,9 +358,9 @@ type subscriptionMessage struct {
 	Type    subscriptionMessageType `json:"type"`
 }
 
-func (c * Client) SubscriptionClient(ctx context.Context, header http.Header) (* SubscriptionClient, error) {
+func (c *Client) SubscriptionClient(ctx context.Context, header http.Header) (*SubscriptionClient, error) {
 	dialer := websocket.DefaultDialer
-	header.Set("Sec-WebSocket-Protocol", "graphql-ws")
+	// header.Set("Sec-WebSocket-Protocol", "graphql-ws")
 	header.Set("Content-Type", "application/json")
 
 	conn, _, err := dialer.DialContext(ctx, strings.Replace(c.endpoint, "http", "ws", 1), header)
@@ -375,40 +373,52 @@ func (c * Client) SubscriptionClient(ctx context.Context, header http.Header) (*
 	}
 	subClient := &SubscriptionClient{
 		subWebsocket: conn,
-		subBuffer: make(chan subscriptionMessage),
+		subBuffer:    make(chan subscriptionMessage),
 	}
 
 	var msg subscriptionMessage
 
 	msg.Type = gql_connection_init
-	emptyPayload := json.RawMessage("{}")
-	msg.Payload = &emptyPayload
+	// emptyPayload := json.RawMessage(`"{}"`)
+	x := json.RawMessage(`{"headers":{"content-type":"application/json"},"lazy":true}`)
+	msg.Payload = &x
+
+	ntB, _ := json.Marshal(msg)
+	fmt.Println(string(ntB))
+
 	err = conn.WriteJSON(msg)
 	if err != nil {
 		return nil, err
 	}
 
-	err = conn.ReadJSON(&msg)
-	if err != nil {
-		return nil, err
-	}
+	for i := 0; i <= 5; i++ {
+		err = conn.ReadJSON(&msg)
+		if err != nil {
+			return nil, err
+		}
 
-	if msg.Type != gql_connection_ack {
-		conn.Close()
-		if msg.Type == gql_connection_error {
-			errJ, _ := json.Marshal(*msg.Payload)
-			return nil, errors.New(string(errJ))
-		} else {
+		switch msg.Type {
+		case gql_connection_keep_alive:
+			continue
+
+		case gql_connection_ack:
+			break
+
+		default:
+			conn.Close()
+			if msg.Type == gql_connection_error {
+				errJ, _ := json.Marshal(*msg.Payload)
+				return nil, errors.New(string(errJ))
+			}
 			return nil, errors.New("server-did-not-acknowledge")
 		}
 	}
-
 
 	go subClient.subWork()
 	return subClient, nil
 }
 
-func (c * SubscriptionClient) Close() error {
+func (c *SubscriptionClient) Close() error {
 	if c.subWebsocket == nil {
 		return nil
 	}
@@ -432,13 +442,13 @@ type SubscriptionPayload struct {
 
 type Subscription chan SubscriptionPayload
 
-func (c * SubscriptionClient) subWork() {
+func (c *SubscriptionClient) subWork() {
 	c.subWait.Add(1)
 	defer c.subWait.Done()
-	defer c.subs.Range(func (_, sub interface{}) bool {
-			close(sub.(Subscription))
-			return true
-		})
+	defer c.subs.Range(func(_, sub interface{}) bool {
+		close(sub.(Subscription))
+		return true
+	})
 
 	for {
 		var msg subscriptionMessage
@@ -453,7 +463,7 @@ func (c * SubscriptionClient) subWork() {
 				return
 			}
 
-			log.Fatalf("Error reading from subscription websocket : %s",  err)
+			log.Fatalf("Error reading from subscription websocket : %s", err)
 			return
 		}
 
@@ -472,12 +482,12 @@ func (c * SubscriptionClient) subWork() {
 			close(ch.(Subscription))
 			c.subs.Delete(id)
 
-		case gql_connection_keep_alive://ignore...
+		case gql_connection_keep_alive: //ignore...
 		}
 	}
 }
 
-func (c * SubscriptionClient) Subscribe(req * Request) (Subscription, error) {
+func (c *SubscriptionClient) Subscribe(req *Request) (Subscription, error) {
 
 	var requestBody bytes.Buffer
 	requestBodyObj := struct {
@@ -491,7 +501,7 @@ func (c * SubscriptionClient) Subscribe(req * Request) (Subscription, error) {
 		return nil, errors.Wrap(err, "encode body")
 	}
 	id := strconv.Itoa(c.subIdGen)
-	c.subIdGen ++
+	c.subIdGen++
 
 	payload := json.RawMessage(requestBody.Bytes())
 	sReq := subscriptionMessage{
@@ -510,8 +520,8 @@ func (c * SubscriptionClient) Subscribe(req * Request) (Subscription, error) {
 	return subChan, nil
 }
 
-func (c * SubscriptionClient) Unsubscribe(sub Subscription)  {
-	c.subs.Range(func(key interface{}, value interface {}) bool {
+func (c *SubscriptionClient) Unsubscribe(sub Subscription) {
+	c.subs.Range(func(key interface{}, value interface{}) bool {
 		if value == sub {
 			id := key.(string)
 			_ = c.subWebsocket.WriteJSON(subscriptionMessage{Id: &id, Type: gql_stop})

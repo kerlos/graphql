@@ -379,13 +379,8 @@ func (c *Client) SubscriptionClient(ctx context.Context, header http.Header) (*S
 	var msg subscriptionMessage
 
 	msg.Type = gql_connection_init
-	// emptyPayload := json.RawMessage(`"{}"`)
-	x := json.RawMessage(`{"headers":{"content-type":"application/json"},"lazy":true}`)
-	msg.Payload = &x
-
-	ntB, _ := json.Marshal(msg)
-	fmt.Println(string(ntB))
-
+	emptyPayload := json.RawMessage("{}")
+	msg.Payload = &emptyPayload
 	err = conn.WriteJSON(msg)
 	if err != nil {
 		return nil, err

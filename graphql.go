@@ -61,8 +61,9 @@ type Client struct {
 // NewClient makes a new Client capable of making GraphQL requests.
 func NewClient(endpoint string, opts ...ClientOption) *Client {
 	c := &Client{
-		endpoint: endpoint,
-		Log:      func(string) {},
+		endpoint:      endpoint,
+		Log:           func(string) {},
+		globalHeaders: make(map[string]string),
 	}
 	for _, optionFunc := range opts {
 		optionFunc(c)
@@ -269,7 +270,7 @@ func WithHTTPClient(httpclient *http.Client) ClientOption {
 	}
 }
 
-func WithGlobalhHeaders(headers map[string]string) ClientOption {
+func WithGlobalHeaders(headers map[string]string) ClientOption {
 	return func(client *Client) {
 		client.globalHeaders = headers
 	}
@@ -277,6 +278,10 @@ func WithGlobalhHeaders(headers map[string]string) ClientOption {
 
 func WithHasuraAdminSecret(val string) ClientOption {
 	return func(client *Client) {
+		if len(client.globalHeaders) == 0 {
+			client.globalHeaders = make(map[string]string)
+		}
+
 		client.globalHeaders["x-hasura-admin-secret"] = val
 	}
 }

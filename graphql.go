@@ -36,14 +36,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"mime/multipart"
 	"net/http"
-	"strconv"
-	"strings"
-	"sync"
 
-	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
 )
 
@@ -52,6 +47,7 @@ type Client struct {
 	endpoint         string
 	httpClient       *http.Client
 	useMultipartForm bool
+	globalHeaders    map[string]string
 
 	// closeReq will close the request body immediately allowing for reuse of client
 	closeReq bool
@@ -92,12 +88,15 @@ func (c *Client) Run(ctx context.Context, req *Request, resp interface{}) error 
 		return ctx.Err()
 	default:
 	}
+
 	if len(req.files) > 0 && !c.useMultipartForm {
 		return errors.New("cannot send files with PostFields option")
 	}
+
 	if c.useMultipartForm {
 		return c.runWithPostFields(ctx, req, resp)
 	}
+
 	return c.runWithJSON(ctx, req, resp)
 }
 
@@ -110,26 +109,36 @@ func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}
 		Query:     req.q,
 		Variables: req.vars,
 	}
+
 	if err := json.NewEncoder(&requestBody).Encode(requestBodyObj); err != nil {
 		return errors.Wrap(err, "encode body")
 	}
+
 	c.logf(">> variables: %v", req.vars)
 	c.logf(">> query: %s", req.q)
 	gr := &graphResponse{
 		Data: resp,
 	}
+
 	r, err := http.NewRequest(http.MethodPost, c.endpoint, &requestBody)
 	if err != nil {
 		return err
 	}
+
 	r.Close = c.closeReq
 	r.Header.Set("Content-Type", "application/json; charset=utf-8")
 	r.Header.Set("Accept", "application/json; charset=utf-8")
+
+	for k, v := range c.globalHeaders {
+		r.Header.Set(k, v)
+	}
+
 	for key, values := range req.Header {
 		for _, value := range values {
 			r.Header.Add(key, value)
 		}
 	}
+
 	c.logf(">> headers: %v", r.Header)
 	r = r.WithContext(ctx)
 	res, err := c.httpClient.Do(r)
@@ -137,92 +146,117 @@ func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}
 		return err
 	}
 	defer res.Body.Close()
+
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, res.Body); err != nil {
 		return errors.Wrap(err, "reading body")
 	}
+
 	c.logf("<< %s", buf.String())
 	if err := json.NewDecoder(&buf).Decode(&gr); err != nil {
 		if res.StatusCode != http.StatusOK {
 			return fmt.Errorf("graphql: server returned a non-200 status code: %v", res.StatusCode)
 		}
+
 		return errors.Wrap(err, "decoding response")
 	}
+
 	if len(gr.Errors) > 0 {
 		// return first error
 		return gr.Errors[0]
 	}
+
 	return nil
 }
 
 func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp interface{}) error {
 	var requestBody bytes.Buffer
+
 	writer := multipart.NewWriter(&requestBody)
 	if err := writer.WriteField("query", req.q); err != nil {
 		return errors.Wrap(err, "write query field")
 	}
+
 	var variablesBuf bytes.Buffer
 	if len(req.vars) > 0 {
 		variablesField, err := writer.CreateFormField("variables")
 		if err != nil {
 			return errors.Wrap(err, "create variables field")
+
 		}
 		if err := json.NewEncoder(io.MultiWriter(variablesField, &variablesBuf)).Encode(req.vars); err != nil {
 			return errors.Wrap(err, "encode variables")
 		}
 	}
+
 	for i := range req.files {
 		part, err := writer.CreateFormFile(req.files[i].Field, req.files[i].Name)
 		if err != nil {
 			return errors.Wrap(err, "create form file")
 		}
+
 		if _, err := io.Copy(part, req.files[i].R); err != nil {
 			return errors.Wrap(err, "preparing file")
 		}
 	}
+
 	if err := writer.Close(); err != nil {
 		return errors.Wrap(err, "close writer")
 	}
+
 	c.logf(">> variables: %s", variablesBuf.String())
 	c.logf(">> files: %d", len(req.files))
 	c.logf(">> query: %s", req.q)
 	gr := &graphResponse{
 		Data: resp,
 	}
+
 	r, err := http.NewRequest(http.MethodPost, c.endpoint, &requestBody)
 	if err != nil {
 		return err
 	}
+
 	r.Close = c.closeReq
 	r.Header.Set("Content-Type", writer.FormDataContentType())
 	r.Header.Set("Accept", "application/json; charset=utf-8")
+
+	for k, v := range c.globalHeaders {
+		r.Header.Set(k, v)
+	}
+
 	for key, values := range req.Header {
 		for _, value := range values {
 			r.Header.Add(key, value)
 		}
 	}
+
 	c.logf(">> headers: %v", r.Header)
 	r = r.WithContext(ctx)
 	res, err := c.httpClient.Do(r)
 	if err != nil {
 		return err
 	}
+
 	defer res.Body.Close()
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, res.Body); err != nil {
 		return errors.Wrap(err, "reading body")
 	}
+
 	c.logf("<< %s", buf.String())
 	if err := json.NewDecoder(&buf).Decode(&gr); err != nil {
 		if res.StatusCode != http.StatusOK {
 			return fmt.Errorf("graphql: server returned a non-200 status code: %v", res.StatusCode)
 		}
+
 		return errors.Wrap(err, "decoding response")
 	}
+
 	if len(gr.Errors) > 0 {
 		// return first error
 		return gr.Errors[0]
 	}
+
 	return nil
 }
 
@@ -232,6 +266,18 @@ func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp inter
 func WithHTTPClient(httpclient *http.Client) ClientOption {
 	return func(client *Client) {
 		client.httpClient = httpclient
+	}
+}
+
+func WithGlobalhHeaders(headers map[string]string) ClientOption {
+	return func(client *Client) {
+		client.globalHeaders = headers
+	}
+}
+
+func WithHasuraAdminSecret(val string) ClientOption {
+	return func(client *Client) {
+		client.globalHeaders["x-hasura-admin-secret"] = val
 	}
 }
 
@@ -326,206 +372,4 @@ type File struct {
 	Field string
 	Name  string
 	R     io.Reader
-}
-
-type SubscriptionClient struct {
-	subWebsocket *websocket.Conn
-	subBuffer    chan subscriptionMessage
-	subWait      sync.WaitGroup
-	subs         sync.Map
-	subIdGen     int
-}
-
-type subscriptionMessageType string
-
-const (
-	gql_connection_init subscriptionMessageType = "connection_init"
-	// gql_connection_keep_alive subscriptionMessageType = "ka"
-	gql_start                 = "start"
-	gql_stop                  = "stop"
-	gql_connection_ack        = "connection_ack"
-	gql_connection_terminate  = "connection_terminate"
-	gql_connection_error      = "connection_error"
-	gql_data                  = "data"
-	gql_error                 = "error"
-	gql_complete              = "GQL_COMPLETE"
-	gql_connection_keep_alive = "ka"
-)
-
-type subscriptionMessage struct {
-	Payload *json.RawMessage        `json:"payload,omitempty"`
-	Id      *string                 `json:"id,omitempty"`
-	Type    subscriptionMessageType `json:"type"`
-}
-
-func (c *Client) SubscriptionClient(ctx context.Context, header http.Header) (*SubscriptionClient, error) {
-	dialer := websocket.DefaultDialer
-	// header.Set("Sec-WebSocket-Protocol", "graphql-ws")
-	header.Set("Content-Type", "application/json")
-
-	conn, _, err := dialer.DialContext(ctx, strings.Replace(c.endpoint, "http", "ws", 1), header)
-
-	if err != nil {
-		if conn != nil {
-			_ = conn.Close()
-		}
-		return nil, err
-	}
-	subClient := &SubscriptionClient{
-		subWebsocket: conn,
-		subBuffer:    make(chan subscriptionMessage),
-	}
-
-	var msg subscriptionMessage
-
-	msg.Type = gql_connection_init
-	emptyPayload := json.RawMessage("{}")
-	msg.Payload = &emptyPayload
-	err = conn.WriteJSON(msg)
-	if err != nil {
-		return nil, err
-	}
-
-	for i := 0; i <= 5; i++ {
-		err = conn.ReadJSON(&msg)
-		if err != nil {
-			return nil, err
-		}
-
-		switch msg.Type {
-		case gql_connection_keep_alive:
-			continue
-
-		case gql_connection_ack:
-			goto DONE
-
-		default:
-			conn.Close()
-			if msg.Type == gql_connection_error {
-				errJ, _ := json.Marshal(*msg.Payload)
-				return nil, errors.New(string(errJ))
-			}
-
-			return nil, errors.New("server-did-not-acknowledge")
-		}
-	}
-
-	return nil, errors.New("timeout")
-
-DONE:
-	go subClient.subWork()
-	return subClient, nil
-}
-
-func (c *SubscriptionClient) Close() error {
-	if c.subWebsocket == nil {
-		return nil
-	}
-	err := c.subWebsocket.WriteJSON(subscriptionMessage{Type: gql_connection_terminate})
-	if err != nil {
-		return err
-	}
-
-	c.subWait.Wait()
-	err = c.subWebsocket.Close()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-type SubscriptionPayload struct {
-	Data  *json.RawMessage
-	Error *json.RawMessage
-}
-
-type Subscription chan SubscriptionPayload
-
-func (c *SubscriptionClient) subWork() {
-	c.subWait.Add(1)
-	defer c.subWait.Done()
-	defer c.subs.Range(func(_, sub interface{}) bool {
-		close(sub.(Subscription))
-		return true
-	})
-
-	for {
-		var msg subscriptionMessage
-		err := c.subWebsocket.ReadJSON(&msg)
-
-		if err != nil {
-			if err == io.ErrUnexpectedEOF || err == io.EOF {
-				//close every subscription
-				return
-			}
-			if strings.HasSuffix(err.Error(), io.ErrUnexpectedEOF.Error()) {
-				return
-			}
-
-			log.Fatalf("Error reading from subscription websocket : %s", err)
-			return
-		}
-
-		switch msg.Type {
-		case gql_error:
-			id := *msg.Id
-			ch, _ := c.subs.Load(id)
-			ch.(Subscription) <- SubscriptionPayload{Error: msg.Payload}
-		case gql_data:
-			id := *msg.Id
-			ch, _ := c.subs.Load(id)
-			ch.(Subscription) <- SubscriptionPayload{Data: msg.Payload}
-		case gql_complete:
-			id := *msg.Id
-			ch, _ := c.subs.Load(id)
-			close(ch.(Subscription))
-			c.subs.Delete(id)
-
-		case gql_connection_keep_alive: //ignore...
-		}
-	}
-}
-
-func (c *SubscriptionClient) Subscribe(req *Request) (Subscription, error) {
-
-	var requestBody bytes.Buffer
-	requestBodyObj := struct {
-		Query     string                 `json:"query"`
-		Variables map[string]interface{} `json:"variables"`
-	}{
-		Query:     req.q,
-		Variables: req.vars,
-	}
-	if err := json.NewEncoder(&requestBody).Encode(requestBodyObj); err != nil {
-		return nil, errors.Wrap(err, "encode body")
-	}
-	id := strconv.Itoa(c.subIdGen)
-	c.subIdGen++
-
-	payload := json.RawMessage(requestBody.Bytes())
-	sReq := subscriptionMessage{
-		Payload: &payload,
-		Id:      &id,
-		Type:    gql_start,
-	}
-
-	subChan := make(Subscription)
-	c.subs.Store(id, subChan)
-	err := c.subWebsocket.WriteJSON(sReq)
-	if err != nil {
-		return nil, err
-	}
-
-	return subChan, nil
-}
-
-func (c *SubscriptionClient) Unsubscribe(sub Subscription) {
-	c.subs.Range(func(key interface{}, value interface{}) bool {
-		if value == sub {
-			id := key.(string)
-			_ = c.subWebsocket.WriteJSON(subscriptionMessage{Id: &id, Type: gql_stop})
-			return false
-		}
-		return true
-	})
 }

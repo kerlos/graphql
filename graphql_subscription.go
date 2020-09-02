@@ -49,6 +49,10 @@ func (c *Client) SubscriptionClient(ctx context.Context, header http.Header) (*S
 	// header.Set("Sec-WebSocket-Protocol", "graphql-ws")
 	header.Set("Content-Type", "application/json")
 
+	for k, v := range c.globalHeaders {
+		header.Set(k, v)
+	}
+
 	conn, _, err := dialer.DialContext(ctx, strings.Replace(c.endpoint, "http", "ws", 1), header)
 
 	if err != nil {
@@ -130,6 +134,7 @@ type Subscription chan SubscriptionPayload
 
 func (c *SubscriptionClient) subWork() {
 	c.subWait.Add(1)
+
 	defer c.subWait.Done()
 	defer c.subs.Range(func(_, sub interface{}) bool {
 		close(sub.(Subscription))

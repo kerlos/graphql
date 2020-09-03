@@ -283,6 +283,16 @@ func WithGlobalHeaders(headers map[string]string) ClientOption {
 	}
 }
 
+func WithGlobalHeader(key, value string) ClientOption {
+	return func(client *Client) {
+		if len(client.globalHeaders) == 0 {
+			client.globalHeaders = make(map[string]string)
+		}
+
+		client.globalHeaders[key] = value
+	}
+}
+
 func WithHasuraAdminSecret(val string) ClientOption {
 	return func(client *Client) {
 		if len(client.globalHeaders) == 0 {

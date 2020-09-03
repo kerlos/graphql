@@ -33,7 +33,6 @@ package graphql
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,6 +48,9 @@ type Client struct {
 	httpClient       *http.Client
 	useMultipartForm bool
 	globalHeaders    map[string]string
+
+	basicAuthUser     string
+	basicAuthPassword string
 
 	// closeReq will close the request body immediately allowing for reuse of client
 	closeReq bool
@@ -125,6 +127,10 @@ func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}
 	r, err := http.NewRequest(http.MethodPost, c.endpoint, &requestBody)
 	if err != nil {
 		return err
+	}
+
+	if c.basicAuthUser != "" && c.basicAuthPassword != "" {
+		r.SetBasicAuth(c.basicAuthUser, c.basicAuthPassword)
 	}
 
 	r.Close = c.closeReq
@@ -287,14 +293,10 @@ func WithHasuraAdminSecret(val string) ClientOption {
 	}
 }
 
-func WithJWTAuthentication(val string) ClientOption {
+func WithAuthentication(user, password string) ClientOption {
 	return func(client *Client) {
-		if len(client.globalHeaders) == 0 {
-			client.globalHeaders = make(map[string]string)
-		}
-
-		username := "Bearer"
-		client.globalHeaders["Authorization"] = fmt.Sprintf("%s %s", username, base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", username, val))))
+		client.basicAuthUser = user
+		client.basicAuthPassword = password
 	}
 }
 

@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -154,7 +154,12 @@ func (c *SubscriptionClient) subWork() {
 				return
 			}
 
-			log.Fatalf("Error reading from subscription websocket : %s", err)
+			errMsg := json.RawMessage([]byte(fmt.Sprintf("Error reading from subscription websocket : %s", err)))
+			c.subs.Range(func(_, ch interface{}) bool {
+				ch.(Subscription) <- SubscriptionPayload{Error: &errMsg}
+				return true
+			})
+
 			return
 		}
 

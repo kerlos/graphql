@@ -286,6 +286,16 @@ func WithHasuraAdminSecret(val string) ClientOption {
 	}
 }
 
+func WithJWTAuthentication(val string) ClientOption {
+	return func(client *Client) {
+		if len(client.globalHeaders) == 0 {
+			client.globalHeaders = make(map[string]string)
+		}
+
+		client.globalHeaders["Authorization"] = fmt.Sprintf("Bearer %s", val)
+	}
+}
+
 // UseMultipartForm uses multipart/form-data and activates support for
 // files.
 func UseMultipartForm() ClientOption {

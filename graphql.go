@@ -33,6 +33,7 @@ package graphql
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -292,7 +293,8 @@ func WithJWTAuthentication(val string) ClientOption {
 			client.globalHeaders = make(map[string]string)
 		}
 
-		client.globalHeaders["Authorization"] = fmt.Sprintf("Bearer %s", val)
+		username := "Bearer"
+		client.globalHeaders["Authorization"] = fmt.Sprintf("%s %s", username, base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", username, val))))
 	}
 }
 

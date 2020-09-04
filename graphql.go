@@ -42,6 +42,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+type ClientInterface interface {
+	Run(ctx context.Context, req *Request, resp interface{}) error
+	SubscriptionClient(ctx context.Context, header http.Header) (SubscriptionClientInterface, error)
+}
+
 // Client is a client for interacting with a GraphQL API.
 type Client struct {
 	endpoint         string
@@ -62,7 +67,7 @@ type Client struct {
 }
 
 // NewClient makes a new Client capable of making GraphQL requests.
-func NewClient(endpoint string, opts ...ClientOption) *Client {
+func NewClient(endpoint string, opts ...ClientOption) ClientInterface {
 	c := &Client{
 		endpoint:      endpoint,
 		Log:           func(string) {},
@@ -74,6 +79,7 @@ func NewClient(endpoint string, opts ...ClientOption) *Client {
 	if c.httpClient == nil {
 		c.httpClient = http.DefaultClient
 	}
+
 	return c
 }
 

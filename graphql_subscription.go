@@ -15,6 +15,12 @@ import (
 	"github.com/pkg/errors"
 )
 
+type SubscriptionClientInterface interface {
+	Close() error
+	Subscribe(req *Request) (Subscription, error)
+	Unsubscribe(sub Subscription)
+}
+
 type SubscriptionClient struct {
 	subWebsocket *websocket.Conn
 	subBuffer    chan subscriptionMessage
@@ -44,7 +50,7 @@ type subscriptionMessage struct {
 	Type    subscriptionMessageType `json:"type"`
 }
 
-func (c *Client) SubscriptionClient(ctx context.Context, header http.Header) (*SubscriptionClient, error) {
+func (c *Client) SubscriptionClient(ctx context.Context, header http.Header) (SubscriptionClientInterface, error) {
 	dialer := websocket.DefaultDialer
 	// header.Set("Sec-WebSocket-Protocol", "graphql-ws")
 	header.Set("Content-Type", "application/json")

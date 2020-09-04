@@ -15,13 +15,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-type SubscriptionClientInterface interface {
+type SubscriptionClient interface {
 	Close() error
 	Subscribe(req *Request) (Subscription, error)
 	Unsubscribe(sub Subscription)
 }
 
-type SubscriptionClient struct {
+type subscriptionClient struct {
 	subWebsocket *websocket.Conn
 	subBuffer    chan subscriptionMessage
 	subWait      sync.WaitGroup
@@ -50,7 +50,7 @@ type subscriptionMessage struct {
 	Type    subscriptionMessageType `json:"type"`
 }
 
-func (c *Client) SubscriptionClient(ctx context.Context, header http.Header) (SubscriptionClientInterface, error) {
+func (c *client) SubscriptionClient(ctx context.Context, header http.Header) (SubscriptionClient, error) {
 	dialer := websocket.DefaultDialer
 	// header.Set("Sec-WebSocket-Protocol", "graphql-ws")
 	header.Set("Content-Type", "application/json")
@@ -67,7 +67,7 @@ func (c *Client) SubscriptionClient(ctx context.Context, header http.Header) (Su
 		}
 		return nil, err
 	}
-	subClient := &SubscriptionClient{
+	subClient := &subscriptionClient{
 		subWebsocket: conn,
 		subBuffer:    make(chan subscriptionMessage),
 	}
@@ -114,7 +114,7 @@ DONE:
 	return subClient, nil
 }
 
-func (c *SubscriptionClient) Close() error {
+func (c *subscriptionClient) Close() error {
 	if c.subWebsocket == nil {
 		return nil
 	}
@@ -138,7 +138,7 @@ type SubscriptionPayload struct {
 
 type Subscription chan SubscriptionPayload
 
-func (c *SubscriptionClient) subWork() {
+func (c *subscriptionClient) subWork() {
 	c.subWait.Add(1)
 
 	defer c.subWait.Done()
@@ -191,7 +191,7 @@ func (c *SubscriptionClient) subWork() {
 	}
 }
 
-func (c *SubscriptionClient) Subscribe(req *Request) (Subscription, error) {
+func (c *subscriptionClient) Subscribe(req *Request) (Subscription, error) {
 	var requestBody bytes.Buffer
 	requestBodyObj := struct {
 		Query     string                 `json:"query"`
@@ -223,7 +223,7 @@ func (c *SubscriptionClient) Subscribe(req *Request) (Subscription, error) {
 	return subChan, nil
 }
 
-func (c *SubscriptionClient) Unsubscribe(sub Subscription) {
+func (c *subscriptionClient) Unsubscribe(sub Subscription) {
 	c.subs.Range(func(key interface{}, value interface{}) bool {
 		if value == sub {
 			id := key.(string)

@@ -1,7 +1,7 @@
-// Package graphql provides a low level GraphQL client.
+// Package graphql provides a low level GraphQL c.
 //
-//  // create a client (safe to share across requests)
-//  client := graphql.NewClient("https://machinebox.io/graphql")
+//  // create a c (safe to share across requests)
+//  c := graphql.NewClient("https://machinebox.io/graphql")
 //
 //  // make a request
 //  req := graphql.NewRequest(`
@@ -19,15 +19,15 @@
 //
 //  // run it and capture the response
 //  var respData ResponseStruct
-//  if err := client.Run(ctx, req, &respData); err != nil {
+//  if err := c.Run(ctx, req, &respData); err != nil {
 //      log.Fatal(err)
 //  }
 //
-// Specify client
+// Specify c
 //
 // To specify your own http.Client, use the WithHTTPClient option:
 //  httpclient := &http.Client{}
-//  client := graphql.NewClient("https://machinebox.io/graphql", graphql.WithHTTPClient(httpclient))
+//  c := graphql.NewClient("https://machinebox.io/graphql", graphql.WithHTTPClient(httpclient))
 package graphql
 
 import (
@@ -42,13 +42,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-type ClientInterface interface {
+type Client interface {
 	Run(ctx context.Context, req *Request, resp interface{}) error
-	SubscriptionClient(ctx context.Context, header http.Header) (SubscriptionClientInterface, error)
+	SubscriptionClient(ctx context.Context, header http.Header) (SubscriptionClient, error)
 }
 
-// Client is a client for interacting with a GraphQL API.
-type Client struct {
+// client is a c for interacting with a GraphQL API.
+type client struct {
 	endpoint         string
 	httpClient       *http.Client
 	useMultipartForm bool
@@ -57,18 +57,18 @@ type Client struct {
 	basicAuthUser     string
 	basicAuthPassword string
 
-	// closeReq will close the request body immediately allowing for reuse of client
+	// closeReq will close the request body immediately allowing for reuse of c
 	closeReq bool
 
 	// Log is called with various debug information.
 	// To log to standard out, use:
-	//  client.Log = func(s string) { log.Println(s) }
+	//  c.Log = func(s string) { log.Println(s) }
 	Log func(s string)
 }
 
 // NewClient makes a new Client capable of making GraphQL requests.
-func NewClient(endpoint string, opts ...ClientOption) ClientInterface {
-	c := &Client{
+func NewClient(endpoint string, opts ...ClientOption) Client {
+	c := &client{
 		endpoint:      endpoint,
 		Log:           func(string) {},
 		globalHeaders: make(map[string]string),
@@ -83,7 +83,7 @@ func NewClient(endpoint string, opts ...ClientOption) ClientInterface {
 	return c
 }
 
-func (c *Client) logf(format string, args ...interface{}) {
+func (c *client) logf(format string, args ...interface{}) {
 	c.Log(fmt.Sprintf(format, args...))
 }
 
@@ -92,7 +92,7 @@ func (c *Client) logf(format string, args ...interface{}) {
 // Pass in a nil response object to skip response parsing.
 // If the request fails or the server returns an error, the first error
 // will be returned.
-func (c *Client) Run(ctx context.Context, req *Request, resp interface{}) error {
+func (c *client) Run(ctx context.Context, req *Request, resp interface{}) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -110,7 +110,7 @@ func (c *Client) Run(ctx context.Context, req *Request, resp interface{}) error 
 	return c.runWithJSON(ctx, req, resp)
 }
 
-func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}) error {
+func (c *client) runWithJSON(ctx context.Context, req *Request, resp interface{}) error {
 	var requestBody bytes.Buffer
 	requestBodyObj := struct {
 		Query     string                 `json:"query"`
@@ -183,7 +183,7 @@ func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}
 	return nil
 }
 
-func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp interface{}) error {
+func (c *client) runWithPostFields(ctx context.Context, req *Request, resp interface{}) error {
 	var requestBody bytes.Buffer
 
 	writer := multipart.NewWriter(&requestBody)
@@ -278,62 +278,62 @@ func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp inter
 // making requests.
 //  NewClient(endpoint, WithHTTPClient(specificHTTPClient))
 func WithHTTPClient(httpclient *http.Client) ClientOption {
-	return func(client *Client) {
-		client.httpClient = httpclient
+	return func(c *client) {
+		c.httpClient = httpclient
 	}
 }
 
 func WithGlobalHeaders(headers map[string]string) ClientOption {
-	return func(client *Client) {
-		client.globalHeaders = headers
+	return func(c *client) {
+		c.globalHeaders = headers
 	}
 }
 
 func WithGlobalHeader(key, value string) ClientOption {
-	return func(client *Client) {
-		if len(client.globalHeaders) == 0 {
-			client.globalHeaders = make(map[string]string)
+	return func(c *client) {
+		if len(c.globalHeaders) == 0 {
+			c.globalHeaders = make(map[string]string)
 		}
 
-		client.globalHeaders[key] = value
+		c.globalHeaders[key] = value
 	}
 }
 
 func WithHasuraAdminSecret(val string) ClientOption {
-	return func(client *Client) {
-		if len(client.globalHeaders) == 0 {
-			client.globalHeaders = make(map[string]string)
+	return func(c *client) {
+		if len(c.globalHeaders) == 0 {
+			c.globalHeaders = make(map[string]string)
 		}
 
-		client.globalHeaders["x-hasura-admin-secret"] = val
+		c.globalHeaders["x-hasura-admin-secret"] = val
 	}
 }
 
 func WithAuthentication(user, password string) ClientOption {
-	return func(client *Client) {
-		client.basicAuthUser = user
-		client.basicAuthPassword = password
+	return func(c *client) {
+		c.basicAuthUser = user
+		c.basicAuthPassword = password
 	}
 }
 
 // UseMultipartForm uses multipart/form-data and activates support for
 // files.
 func UseMultipartForm() ClientOption {
-	return func(client *Client) {
-		client.useMultipartForm = true
+	return func(c *client) {
+		c.useMultipartForm = true
 	}
 }
 
 //ImmediatelyCloseReqBody will close the req body immediately after each request body is ready
 func ImmediatelyCloseReqBody() ClientOption {
-	return func(client *Client) {
-		client.closeReq = true
+	return func(c *client) {
+		c.closeReq = true
 	}
 }
 
 // ClientOption are functions that are passed into NewClient to
 // modify the behaviour of the Client.
-type ClientOption func(*Client)
+type ClientOption func(*client)
 
 type graphErr struct {
 	Message string
